@@ -1,26 +1,27 @@
-# Prowider — Mini Lead Distribution System
+# Prowider Mini Lead Distribution System
 
-A full-stack Next.js application that simulates a simplified Prowider-style
-lead generation and distribution platform. Customers submit service
-enquiries; the system deterministically assigns each lead to exactly 3
-providers using mandatory rules plus a fair round-robin pool, enforces a
-monthly quota per provider, exposes a real-time dashboard, and supports an
-idempotent webhook for quota resets.
+Hey! This is my implementation of a lead distribution system for the Prowider internship assignment. 
 
----
+The goal was to build a platform where customers can submit service requests, and the system automatically distributes these leads to service providers fairly. Each lead goes to exactly 3 providers, respecting mandatory assignments and monthly quotas, with everything happening in real-time.
 
-## Tech Stack
-
-- **Framework:** Next.js 14 (App Router) + TypeScript
-- **Database:** PostgreSQL (Neon / Supabase / local)
-- **ORM:** Prisma 5
-- **Real-time:** Server-Sent Events (with DB polling fallback)
-- **Styling:** Tailwind CSS
-- **Deployment:** Vercel
+I built this using Next.js 14, PostgreSQL, and Prisma, focusing on making sure the allocation logic is bulletproof even under high concurrency.
 
 ---
 
-## Pages
+## 🛠️ Tech Stack
+
+I chose these technologies because they're modern, scalable, and I'm comfortable working with them:
+
+- **Next.js 14** (App Router) with TypeScript for the full-stack framework
+- **PostgreSQL** for the database (using Neon's free tier for cloud hosting)
+- **Prisma 5** as the ORM - makes database operations type-safe and easy
+- **Server-Sent Events** for real-time updates (with a polling fallback for reliability)
+- **Tailwind CSS** for styling - kept it minimal and clean
+- **Vercel** for deployment
+
+---
+
+## 📱 What's Inside
 
 | Route               | Description                                                         |
 | ------------------- | ------------------------------------------------------------------- |
@@ -29,7 +30,7 @@ idempotent webhook for quota resets.
 | `/dashboard`        | Provider dashboard with real-time updates (SSE + poll)              |
 | `/test-tools`       | Webhook idempotency test + concurrency stress test                  |
 
-## API
+## 🔌 API Endpoints
 
 | Method | Path                              | Purpose                                              |
 | ------ | --------------------------------- | ---------------------------------------------------- |
@@ -41,48 +42,46 @@ idempotent webhook for quota resets.
 
 ---
 
-## Setup
+## 🚀 Getting Started
 
-### 1. Prerequisites
+Here's how to run this project locally:
 
-- Node.js ≥ 18.18
-- A PostgreSQL database (Neon free tier is fine: <https://neon.tech>)
+### Prerequisites
+- Node.js 18 or higher
+- A PostgreSQL database (I recommend Neon's free tier: https://neon.tech)
 
-### 2. Install
+### Installation
 
+1. **Clone the repository**
 ```bash
-git clone <repo-url>
-cd 2048
+git clone https://github.com/shreyasgurav/Lead-Distribution-System.git
+cd Lead-Distribution-System
 npm install
 ```
 
-### 3. Configure environment
+2. **Set up your database**
 
-Copy `.env.example` to `.env` and set your connection string:
-
+Create a `.env` file in the root directory:
 ```bash
-cp .env.example .env
-# edit .env and set DATABASE_URL
+DATABASE_URL="your-postgresql-connection-string"
 ```
 
-### 4. Initialize the database
-
+3. **Initialize the database**
 ```bash
-npm run db:push    # creates tables from prisma/schema.prisma
-npm run db:seed    # inserts 3 services, 8 providers, 3 allocation states
+npm run db:push    # Creates all the tables
+npm run db:seed    # Adds initial data (3 services, 8 providers)
 ```
 
-The seed is **idempotent** — re-running it will not duplicate data.
+Don't worry about running seed multiple times - it's idempotent and won't create duplicates.
 
-### 5. Run locally
-
+4. **Start the development server**
 ```bash
 npm run dev
-# open http://localhost:3000
 ```
 
-### 6. Build / production
+Open http://localhost:3000 and you're good to go!
 
+### For Production
 ```bash
 npm run build
 npm start
@@ -90,29 +89,31 @@ npm start
 
 ---
 
-## Deployment (Vercel)
+## 🌐 Deploying to Vercel
 
-1. Push the repo to GitHub.
-2. Import it in <https://vercel.com>.
-3. Set `DATABASE_URL` in the project's Environment Variables.
-4. Deploy. Vercel runs `npm run build`, which also runs `prisma generate`.
-5. From your local machine (or any one-off Vercel CLI session), run the
-   migration + seed against the production database:
+Deployment is straightforward:
 
+1. Push your code to GitHub
+2. Import the repo in Vercel (https://vercel.com)
+3. Add `DATABASE_URL` to your environment variables
+4. Deploy! Vercel handles the build automatically
+5. Run these commands locally to set up the production database:
    ```bash
-   DATABASE_URL="<prod url>" npm run db:push
-   DATABASE_URL="<prod url>" npm run db:seed
+   DATABASE_URL="your-production-url" npm run db:push
+   DATABASE_URL="your-production-url" npm run db:seed
    ```
 
-6. Visit your deployed URL. All three pages should load and work.
+That's it! Your app should be live.
 
 ---
 
-## How it works
+## 💡 How It Works
 
-### Allocation algorithm
+### The Allocation Logic
 
-Mandatory mapping (business rule, in `src/lib/allocation.ts`):
+This was the most interesting part to build. Here's how leads get distributed:
+
+**Business Rules:**
 
 | Service   | Mandatory providers | Round-robin pool        |
 | --------- | ------------------- | ----------------------- |
@@ -120,81 +121,57 @@ Mandatory mapping (business rule, in `src/lib/allocation.ts`):
 | Service 2 | `[5]`               | `[6, 7, 8]`             |
 | Service 3 | `[1, 4]`            | `[2, 3, 5, 6, 7, 8]`    |
 
-Every lead must end up with **at most 3** providers:
+**The Algorithm:**
 
-1. **Mandatory phase.** For each mandatory provider, include them iff
-   `leadsReceived < monthlyQuota`. If their quota is exhausted, skip them
-   silently (do not fail).
-2. **Round-robin phase.** Starting from the persisted `pointer` for that
-   service in `AllocationState`, walk the pool modulo length, skipping any
-   provider that is already assigned or out of quota, until 3 slots are
-   filled or the pool is exhausted. The pointer is advanced past the last
-   successful pick and persisted back to the DB so fairness survives
-   restarts and works across serverless instances.
-3. **Persist.** Inside the same transaction, write the `LeadAssignment`
-   rows and increment `Provider.leadsReceived`.
+Each lead gets assigned to exactly 3 providers (or fewer if quotas are full):
 
-Result: deterministic, replayable, and never gives a single lead the same
-provider twice.
+1. **Mandatory Assignment:** First, I assign the mandatory providers for that service - but only if they haven't hit their monthly quota yet. If they're full, we skip them (no errors, just move on).
 
-### Concurrency handling
+2. **Round-Robin Distribution:** For the remaining slots, I use a round-robin approach. There's a pointer stored in the database that remembers where we left off. Starting from that position, I walk through the pool of eligible providers, skipping anyone who's already assigned or out of quota. After each successful assignment, the pointer moves forward.
 
-Two simultaneous lead submissions could otherwise corrupt the round-robin
-pointer or overflow a provider's quota. We defend with **three layered
-guarantees**:
+3. **Save Everything:** All the assignments and quota updates happen in a single database transaction to keep everything consistent.
 
-1. **Postgres advisory lock per service.** Every allocation begins with
-   `SELECT pg_advisory_xact_lock(serviceId)` inside a `prisma.$transaction`.
-   This serializes all allocations for the same service, so the
-   pointer-read → pointer-write is atomic.
-2. **Row-level locks on Provider rows.** Inside the same transaction we
-   issue `SELECT … FOR UPDATE` on the candidate provider rows, ordered by
-   `id`. This prevents lost updates when the same provider is touched by
-   two services in parallel (e.g. Provider 1 is mandatory for Service 1
-   *and* Service 3). The stable lock order eliminates deadlock risk.
-3. **DB-level unique constraints.** `(phone, serviceId)` on `Lead` and
-   `(leadId, providerId)` on `LeadAssignment` mean even if anything else
-   slips through, the database rejects duplicates.
+The result? Fair distribution that's deterministic and never assigns the same provider twice to a lead.
 
-The `/api/test/generate-leads` route fires N submissions through
-`Promise.all` and is a direct stress test for this.
+### Handling Concurrent Requests
 
-### Webhook idempotency
+This was tricky - what happens when multiple leads come in at the exact same time? Without proper handling, we could mess up the round-robin pointer or exceed quotas.
 
-`/api/webhook/reset-quota` accepts a client-supplied `idempotencyKey`
-(UUID) and inserts it as the primary key of a `WebhookEvent` row inside
-the same transaction that resets every provider's `leadsReceived` to 0
-and every `AllocationState.pointer` to 0.
+I implemented three layers of protection:
 
-If the same key is replayed, Postgres rejects the insert with `P2002`
-(unique violation), the transaction is rolled back, and the API returns
-HTTP 200 with `{ alreadyProcessed: true }` *without mutating any data*.
+1. **PostgreSQL Advisory Locks:** Each service gets its own lock. When processing a lead for Service 1, no other Service 1 allocation can happen simultaneously. This keeps the round-robin pointer consistent.
 
-Net effect: replaying the webhook N times has the exact same observable
-outcome as calling it once. You can verify this in `/test-tools` — click
-"Reset" twice with the same key.
+2. **Row-Level Locking:** I lock the provider rows we're checking (using `SELECT ... FOR UPDATE`) in a stable order. This prevents issues when the same provider is needed by multiple services at once.
 
-### Real-time dashboard
+3. **Database Constraints:** As a final safety net, the database itself enforces uniqueness - same phone number can't submit to the same service twice, and a provider can't be assigned to the same lead twice.
 
-`/api/dashboard-stream` is a Server-Sent Events endpoint that combines:
+You can stress-test this yourself using the "Generate 10 Leads" button in the test tools page!
 
-- An in-process `EventEmitter` (instant push when allocations happen on
-  the same Node.js instance — typical on dev/local).
-- A DB poll every 2 s on `max(LeadAssignment.assignedAt)` that surfaces
-  cross-instance writes within ~2 s, which matters on horizontally-scaled
-  serverless platforms like Vercel.
-- A keep-alive ping every 15 s.
+### Idempotent Webhook
 
-The browser uses native `EventSource`, which auto-reconnects when the
-serverless function reaches its `maxDuration` (60 s). A defensive 8-second
-polling timer on the client provides a hard fallback if SSE is fully
-blocked by a corporate proxy.
+The quota reset webhook is designed to be safe even if called multiple times with the same request.
+
+Here's how it works: When you call the reset endpoint, you provide an `idempotencyKey` (a UUID). I store this key in the database as part of the same transaction that resets all the quotas. If someone tries to call the webhook again with the same key, PostgreSQL rejects it because the key already exists, and nothing gets changed.
+
+This means you can safely retry the webhook without worrying about accidentally resetting quotas twice. Try it in the test tools - click "Reset" twice with the same key and watch the second call return `alreadyProcessed: true`.
+
+### Real-Time Dashboard Updates
+
+The dashboard updates automatically when new leads are assigned - no need to refresh!
+
+I'm using Server-Sent Events (SSE) for this, with a smart fallback system:
+
+- **In-memory events:** When a lead is assigned on the same server instance, the dashboard updates instantly
+- **Database polling:** Every 2 seconds, I check for new assignments in the database. This catches updates from other server instances (important for production on Vercel)
+- **Client-side polling:** As a backup, the browser also polls every 8 seconds in case SSE gets blocked
+
+The connection auto-reconnects if it drops, so the dashboard stays live even on serverless platforms.
 
 ---
 
-## Manual verification checklist
+## ✅ Testing the System
 
-After setup, walk through these to confirm everything works:
+Once you've got everything running, here's what you should test:
 
 1. **Lead allocation.** Submit a lead for Service 1 via
    `/request-service`. The response should include
@@ -219,7 +196,7 @@ After setup, walk through these to confirm everything works:
 
 ---
 
-## Project structure
+## 📁 Project Structure
 
 ```
 prisma/
@@ -248,15 +225,24 @@ src/
 
 ---
 
-## Notes / Trade-offs
+## 📝 Design Decisions & Trade-offs
 
-- No authentication is implemented — the assignment explicitly excludes
-  it. Both the dashboard and test panel are public.
-- The mandatory mapping is encoded in code (`MANDATORY_BY_SERVICE`)
-  rather than the DB. Pool/pointer state *is* in the DB so the
-  round-robin survives restarts.
-- The SSE route's `maxDuration` is 60 s to fit Vercel Hobby. The browser
-  reconnects automatically.
-- Quota window: "monthly" is interpreted as "until the reset webhook
-  fires." There is no calendar-month cron; that is delegated to whoever
-  calls the webhook.
+A few things I want to mention about the implementation:
+
+- **No Authentication:** The assignment didn't require it, so I kept things simple. In a real production system, you'd definitely want to add auth.
+
+- **Mandatory Mappings in Code:** I hardcoded the mandatory provider rules in `MANDATORY_BY_SERVICE` rather than making them database-driven. For a real system, you'd probably want this configurable, but for this assignment, it keeps things simpler.
+
+- **Monthly Quotas:** I interpret "monthly" as "until the reset webhook is called" rather than implementing calendar-based resets. In production, you'd probably have a cron job calling the webhook on the 1st of each month.
+
+- **SSE Connection Limits:** On Vercel's free tier, serverless functions timeout after 60 seconds, so the SSE connection reconnects automatically. This is totally normal and handled gracefully by the browser.
+
+---
+
+## 🙏 Final Notes
+
+This was a fun challenge! I focused on making the core allocation logic robust and handling edge cases properly. The concurrency handling and idempotency were particularly interesting problems to solve.
+
+If you have any questions about the implementation or want to discuss any of the design decisions, feel free to reach out!
+
+**Repository:** https://github.com/shreyasgurav/Lead-Distribution-System
